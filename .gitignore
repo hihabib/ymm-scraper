@@ -183,7 +183,6 @@ test_*.py
 # OS generated files
 .DS_Store
 .DS_Store?
-._*
 .Spotlight-V100
 .Trashes
 ehthumbs.db
@@ -216,6 +215,7 @@ yarn-error.log*
 # Browser extension files (if they contain sensitive data)
 # Uncomment if needed:
 # extension/
+# src/providers/*/extension/
 
 # Database files
 *.db
