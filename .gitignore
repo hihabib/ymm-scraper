@@ -161,6 +161,7 @@ data/logs/
 !requirements.txt
 !package.json
 !tsconfig.json
+!manifest.json
 !.vscode/settings.json
 
 # Data files that can be regenerated
