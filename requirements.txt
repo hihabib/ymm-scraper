@@ -1,0 +1,9 @@
+requests
+beautifulsoup4
+urllib3>=1.26
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+playwright>=1.47
+fastapi>=0.114.0
+uvicorn>=0.30.0
+psutil>=5.9
