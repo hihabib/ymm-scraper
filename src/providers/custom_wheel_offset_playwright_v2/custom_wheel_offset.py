@@ -598,12 +598,312 @@ class CustomWheelOffsetScraperV2:
         self.page.on("console", handle_console)
         return False
     
+    async def detect_json_from_page(self) -> dict:
+        """Detect and extract JSON object from page content before redirection."""
+        try:
+            # Wait a moment for the JSON to appear on the page
+            await asyncio.sleep(1)
+            
+            # Try to extract JSON from page content using multiple methods
+            json_data = None
+            
+            # Method 1: Look for JSON in page text content
+            page_content = await self.page.content()
+            
+            # Look for JSON patterns in the page content
+            import re
+            json_patterns = [
+                r'\{"year":\s*"[^"]+",\s*"make":\s*"[^"]+",\s*"model":\s*"[^"]+",\s*"trim":\s*"[^"]+",\s*"drive":\s*"[^"]+"[^}]*\}',
+                r'\{[^{}]*"year"[^{}]*\}',
+                r'\{[^{}]*"make"[^{}]*\}',
+            ]
+            
+            for pattern in json_patterns:
+                matches = re.findall(pattern, page_content, re.IGNORECASE)
+                if matches:
+                    for match in matches:
+                        try:
+                            json_data = json.loads(match)
+                            if 'year' in json_data and 'make' in json_data and 'model' in json_data:
+                                self.logger.info(f"Found JSON data via regex pattern: {json_data}")
+                                return json_data
+                        except json.JSONDecodeError:
+                            continue
+            
+            # Method 2: Look for JSON in visible text elements
+            json_text = await self.page.evaluate("""
+                () => {
+                    // Look for JSON in all text nodes
+                    const walker = document.createTreeWalker(
+                        document.body,
+                        NodeFilter.SHOW_TEXT,
+                        null,
+                        false
+                    );
+                    
+                    let node;
+                    while (node = walker.nextNode()) {
+                        const text = node.textContent.trim();
+                        if (text.includes('"year"') && text.includes('"make"') && text.includes('"model"')) {
+                            // Try to extract JSON from this text
+                            const jsonMatch = text.match(/\\{[^{}]*"year"[^{}]*\\}/);
+                            if (jsonMatch) {
+                                try {
+                                    const parsed = JSON.parse(jsonMatch[0]);
+                                    if (parsed.year && parsed.make && parsed.model) {
+                                        return jsonMatch[0];
+                                    }
+                                } catch (e) {
+                                    // Continue searching
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Also check for JSON in pre, code, or script tags
+                    const elements = document.querySelectorAll('pre, code, script, div, span, p');
+                    for (const element of elements) {
+                        const text = element.textContent || element.innerText || '';
+                        if (text.includes('"year"') && text.includes('"make"') && text.includes('"model"')) {
+                            const jsonMatch = text.match(/\\{[^{}]*"year"[^{}]*\\}/);
+                            if (jsonMatch) {
+                                try {
+                                    const parsed = JSON.parse(jsonMatch[0]);
+                                    if (parsed.year && parsed.make && parsed.model) {
+                                        return jsonMatch[0];
+                                    }
+                                } catch (e) {
+                                    // Continue searching
+                                }
+                            }
+                        }
+                    }
+                    
+                    return null;
+                }
+            """)
+            
+            if json_text:
+                try:
+                    json_data = json.loads(json_text)
+                    self.logger.info(f"Found JSON data via JavaScript evaluation: {json_data}")
+                    return json_data
+                except json.JSONDecodeError as e:
+                    self.logger.warning(f"Failed to parse JSON text: {json_text}, error: {e}")
+            
+            # Method 3: Check if JSON is in console logs
+            console_logs = []
+            def capture_console(msg):
+                console_logs.append(msg.text)
+            
+            self.page.on("console", capture_console)
+            await asyncio.sleep(0.5)  # Brief wait to capture any console output
+            
+            for log in console_logs:
+                if '"year"' in log and '"make"' in log and '"model"' in log:
+                    try:
+                        # Extract JSON from console log
+                        json_match = re.search(r'\{[^{}]*"year"[^{}]*\}', log)
+                        if json_match:
+                            json_data = json.loads(json_match.group())
+                            self.logger.info(f"Found JSON data in console logs: {json_data}")
+                            return json_data
+                    except json.JSONDecodeError:
+                        continue
+            
+            self.logger.warning("No JSON data found on page")
+            return {}
+            
+        except Exception as e:
+            self.logger.error(f"Error detecting JSON from page: {e}")
+            return {}
+
+    def save_initial_ymm_record(self, json_data: dict) -> int:
+        """Save initial YMM record from JSON data and return the row ID."""
+        try:
+            # Validate required fields
+            required_fields = ['year', 'make', 'model', 'trim', 'drive']
+            for field in required_fields:
+                if field not in json_data:
+                    raise ValueError(f"Missing required field: {field}")
+            
+            # Create YMM record with JSON data
+            ymm_record = CustomWheelOffsetYMM(
+                year=json_data.get('year', ''),
+                make=json_data.get('make', ''),
+                model=json_data.get('model', ''),
+                trim=json_data.get('trim', ''),
+                drive=json_data.get('drive', ''),
+                suspension=json_data.get('suspension', ''),
+                modification=json_data.get('modification', ''),
+                rubbing=json_data.get('rubbing', ''),
+                # Additional fields will be updated later from URL
+                dr_chassis_id='',
+                vehicle_type='',
+                bolt_pattern=''
+            )
+            
+            self.db_session.add(ymm_record)
+            self.db_session.flush()  # Flush to get the ID without committing
+            
+            ymm_id = ymm_record.id
+            self.logger.info(f"Created initial YMM record with ID: {ymm_id}, data: {json_data}")
+            
+            return ymm_id
+            
+        except Exception as e:
+            self.logger.error(f"Error saving initial YMM record: {e}")
+            self.db_session.rollback()
+            raise e
+
+    def update_ymm_record_with_url_data(self, ymm_id: int, url_data: dict, json_data: dict) -> bool:
+        """Update existing YMM record with additional URL data, excluding JSON fields."""
+        try:
+            # Get the existing record
+            ymm_record = self.db_session.query(CustomWheelOffsetYMM).filter_by(id=ymm_id).first()
+            if not ymm_record:
+                raise ValueError(f"YMM record with ID {ymm_id} not found")
+            
+            # Fields to exclude (already set from JSON)
+            excluded_fields = {'year', 'make', 'model', 'trim', 'drive', 'suspension', 'modification', 'rubbing'}
+            
+            # Update only the fields not in JSON data
+            updated_fields = []
+            for key, value in url_data.items():
+                if key not in excluded_fields and hasattr(ymm_record, key):
+                    setattr(ymm_record, key, value)
+                    updated_fields.append(f"{key}={value}")
+            
+            # Map URL parameter names to database field names if needed
+            field_mapping = {
+                'DRChassisID': 'dr_chassis_id',
+                'vehicle_type': 'vehicle_type'
+            }
+            
+            for url_key, db_field in field_mapping.items():
+                if url_key in url_data and hasattr(ymm_record, db_field):
+                    setattr(ymm_record, db_field, url_data[url_key])
+                    updated_fields.append(f"{db_field}={url_data[url_key]}")
+            
+            self.db_session.commit()
+            self.logger.info(f"Updated YMM record {ymm_id} with URL data: {updated_fields}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error updating YMM record with URL data: {e}")
+            self.db_session.rollback()
+            return False
+
     async def javascript_workflow(self) -> bool:
         """Execute the JavaScript injection workflow. Returns True if should continue, False if complete."""
         try:
             # Step 1: Inject navigateToNext.js
             await self.inject_and_execute_js(self.navigate_js_path)
             
+            # Step 2: Detect and extract JSON data from page before redirection
+            json_data = await self.detect_json_from_page()
+            
+            if not json_data:
+                self.logger.warning("No JSON data detected on page - this may indicate an issue")
+                # Continue with original workflow if no JSON detected
+                return await self.original_javascript_workflow()
+            
+            # Step 3: Save initial YMM record with JSON data and get the row ID
+            try:
+                ymm_id = self.save_initial_ymm_record(json_data)
+                self.logger.info(f"Saved initial YMM record with ID: {ymm_id}")
+            except Exception as e:
+                self.logger.error(f"Failed to save initial YMM record: {e}")
+                return False
+            
+            # Check console for success message
+            await asyncio.sleep(1)  # Brief wait for console message
+            
+            # Step 4: Get last YMM record and construct resumeFrom object
+            last_record = self.get_last_ymm_record(self.start_year, self.end_year)
+            resume_from_js = f"const resumeFrom = {json.dumps(last_record)};"
+            print(f"resumeFrom: {resume_from_js}")
+            
+            # Step 5: Execute navigateAndApplyNext with resumeFrom and dynamic END_YEAR
+            end_year_param = self.end_year if self.end_year else '2026'  # Fallback to default
+            start_year_param = self.start_year if self.start_year else '2026'  # Fallback to default
+            function_call = f"{resume_from_js} navigateAndApplyNext(resumeFrom, true, '{start_year_param}', '{end_year_param}');"
+            await self.page.evaluate(function_call)
+            self.logger.info(f"Executed navigateAndApplyNext with resumeFrom: {last_record}, START_YEAR: {start_year_param}, END_YEAR: {end_year_param}")
+            
+            # Step 6: Wait for page reload and handle captcha if needed
+            await asyncio.sleep(3)  # Wait for navigation to start
+            await self.page.wait_for_load_state('networkidle', timeout=30000)
+            
+            # Check for captcha after reload
+            await self.wait_for_captcha_resolution()
+            await self.wait_for_page_load()
+            
+            # Step 7: Extract vehicle data from URL (excluding JSON fields)
+            current_url = self.page.url
+            url_data = self.extract_url_parameters(current_url)
+            
+            if not url_data:
+                error_msg = "No vehicle data extracted from URL - this indicates a navigation or page loading error"
+                self.logger.error(error_msg)
+                raise RuntimeError(error_msg)
+            
+            # Step 8: Update YMM record with URL data (excluding JSON fields)
+            update_success = self.update_ymm_record_with_url_data(ymm_id, url_data, json_data)
+            if not update_success:
+                self.logger.error("Failed to update YMM record with URL data")
+                return False
+            
+            # Step 9: Execute extract_fitment.js
+            fitment_result = await self.inject_and_execute_js(self.extract_js_path)
+            
+            if fitment_result:
+                try:
+                    # Parse the JSON result
+                    if isinstance(fitment_result, str):
+                        fitment_data = json.loads(fitment_result)
+                    else:
+                        fitment_data = fitment_result
+                    
+                    # Extract bolt pattern from front data if available
+                    bolt_pattern = None
+                    if "front" in fitment_data and "boltPattern" in fitment_data["front"]:
+                        bolt_pattern = fitment_data["front"]["boltPattern"].get("inch", "")
+                    
+                    # Step 10: Save fitment data and update bolt pattern
+                    try:
+                        self.save_fitment_data(ymm_id, fitment_data)
+                        if bolt_pattern:
+                            self.update_bolt_pattern(ymm_id, bolt_pattern)
+                        
+                        self.logger.info("✓ Successfully processed vehicle data and fitment information")
+                        return True
+                        
+                    except Exception as e:
+                        self.logger.error(f"Error saving fitment data: {e}")
+                        return False
+                    
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"Error parsing fitment JSON: {e}")
+                    return False
+            else:
+                self.logger.error("Failed to extract fitment data")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error in JavaScript workflow: {e}")
+            # Check if this error should trigger restart using comprehensive logic
+            if self.is_restart_required_error(str(e), type(e).__name__):
+                self.logger.warning("Detected critical error that requires restart - will trigger restart")
+                raise e  # Re-raise to trigger auto-restart
+            else:
+                # Non-critical error, continue workflow
+                return False
+
+    async def original_javascript_workflow(self) -> bool:
+        """Original JavaScript workflow for fallback when JSON detection fails."""
+        try:
             # Check console for success message
             await asyncio.sleep(1)  # Brief wait for console message
             
@@ -673,7 +973,7 @@ class CustomWheelOffsetScraperV2:
                 return False
                 
         except Exception as e:
-            self.logger.error(f"Error in JavaScript workflow: {e}")
+            self.logger.error(f"Error in original JavaScript workflow: {e}")
             # Check if this error should trigger restart using comprehensive logic
             if self.is_restart_required_error(str(e), type(e).__name__):
                 self.logger.warning("Detected critical error that requires restart - will trigger restart")
@@ -681,7 +981,7 @@ class CustomWheelOffsetScraperV2:
             else:
                 # Non-critical error, continue workflow
                 return False
-    
+
     def is_restart_required_error(self, error_msg: str, error_type: str = "") -> bool:
         """
         Determine if an error requires system restart.
@@ -809,7 +1109,7 @@ class CustomWheelOffsetScraperV2:
     
     async def run_scraper_with_auto_restart(self) -> None:
         """Main scraper execution with automatic browser restart on failures."""
-        max_restart_attempts = 5
+        # Remove restart limits to allow unlimited restarts as requested
         restart_count = 0
         consecutive_failures = 0
         scraper_initialized = False
@@ -854,10 +1154,10 @@ class CustomWheelOffsetScraperV2:
         # Set up console listener
         self.page.on("console", handle_console)
         
-        # Start infinite loop for JavaScript workflow with restart capability
+        # Start infinite loop for JavaScript workflow with unlimited restart capability
         iteration_count = 0
         
-        while not completion_detected and restart_count <= max_restart_attempts:
+        while not completion_detected:  # Removed restart limit check
             iteration_count += 1
             
             try:
@@ -888,41 +1188,38 @@ class CustomWheelOffsetScraperV2:
                 error_type = type(e).__name__
                 self.logger.error(f"JavaScript workflow failed with {error_type}: {e}")
                 
-                if restart_count <= max_restart_attempts:
-                    # Calculate backoff delay based on consecutive failures
-                    backoff_delay = min(30, 5 * consecutive_failures)
-                    
-                    # Wait with exponential backoff
-                    await asyncio.sleep(backoff_delay)
-                    
-                    # Clean up browser profile if too many consecutive failures
-                    if consecutive_failures >= 3:
-                        self.logger.warning("Multiple consecutive failures detected - cleaning browser profile")
-                        await self.clean_browser_profile()
-                    
-                    # Determine if we should force a fresh profile
-                    force_fresh = consecutive_failures >= 2 or "Target page, context or browser has been closed" in str(e)
-                    
-                    # Attempt to restart browser with fresh profile if needed
-                    restart_success = await self.restart_browser(force_fresh_profile=force_fresh)
-                    
-                    if not restart_success:
-                        self.logger.error(f"Browser restart failed on attempt {restart_count}")
-                        # Additional delay on restart failure
-                        await asyncio.sleep(10)
-                    else:
-                        # Re-setup console listener after restart
-                        self.page.on("console", handle_console)
-                        # Brief pause before resuming
-                        await asyncio.sleep(5)
+                # Always attempt restart (no maximum limit)
+                # Calculate backoff delay based on consecutive failures
+                backoff_delay = min(30, 5 * consecutive_failures)
+                
+                # Wait with exponential backoff
+                await asyncio.sleep(backoff_delay)
+                
+                # Clean up browser profile if too many consecutive failures
+                if consecutive_failures >= 3:
+                    self.logger.warning("Multiple consecutive failures detected - cleaning browser profile")
+                    await self.clean_browser_profile()
+                
+                # Determine if we should force a fresh profile
+                force_fresh = consecutive_failures >= 2 or "Target page, context or browser has been closed" in str(e)
+                
+                # Attempt to restart browser with fresh profile if needed
+                restart_success = await self.restart_browser(force_fresh_profile=force_fresh)
+                
+                if not restart_success:
+                    self.logger.error(f"Browser restart failed on attempt {restart_count}")
+                    # Additional delay on restart failure
+                    await asyncio.sleep(10)
                 else:
-                    self.logger.error(f"Maximum restart attempts ({max_restart_attempts}) exceeded. Stopping scraper.")
-                    break
+                    # Re-setup console listener after restart
+                    self.page.on("console", handle_console)
+                    # Brief pause before resuming
+                    await asyncio.sleep(5)
         
         if completion_detected:
             self.logger.info("Scraper completed successfully")
-        elif restart_count > max_restart_attempts:
-            self.logger.error("Scraper stopped due to maximum restart attempts exceeded")
+        else:
+            self.logger.info("Scraper stopped due to other conditions")
         
         # Final cleanup
         await self.cleanup()

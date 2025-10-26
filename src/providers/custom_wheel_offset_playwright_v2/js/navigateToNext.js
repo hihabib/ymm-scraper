@@ -431,7 +431,7 @@ async function navigateAndApplyNext(resumeFrom = null, includeExtra = false, sta
       selectionLog.rubbing = currentSelection.rubbing?.textContent.trim();
     }
     
-    // console.log('Current Selection:', selectionLog);
+    console.log(JSON.stringify(selectionLog));
     // console.log('═══════════════════════════════════════════════════════\n');
     
   } catch (error) {
