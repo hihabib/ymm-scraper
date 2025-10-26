@@ -17,18 +17,18 @@ CUSTOM_WHEEL_OFFSET_FINAL_VERSION_WORKERS = [
         "START_YEAR": "2025",
         "END_YEAR": "2025",
     },
-    {
-        "START_YEAR": "2024",
-        "END_YEAR": "2024",
-    },
-    {
-        "START_YEAR": "2023",
-        "END_YEAR": "2023",
-    },
-    {
-        "START_YEAR": "2022",
-        "END_YEAR": "2022",
-    }
+    # {
+    #     "START_YEAR": "2024",
+    #     "END_YEAR": "2024",
+    # },
+    # {
+    #     "START_YEAR": "2023",
+    #     "END_YEAR": "2023",
+    # },
+    # {
+    #     "START_YEAR": "2022",
+    #     "END_YEAR": "2022",
+    # }
 ]
 
 # Driver Right Data scraper worker count. Change as needed.

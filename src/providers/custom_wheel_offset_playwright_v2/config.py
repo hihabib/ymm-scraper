@@ -11,7 +11,7 @@ PROVIDER_NAME = "custom_wheel_offset_v2"
 BASE_URL = "https://www.customwheeloffset.com/store/wheels"
 
 # Browser configuration
-HEADLESS = True
+HEADLESS = False
 VIEWPORT = {"width": 1920, "height": 1080}
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
