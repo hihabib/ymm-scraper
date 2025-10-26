@@ -613,9 +613,20 @@ class CustomWheelOffsetScraperV2:
             # Look for JSON patterns in the page content
             import re
             json_patterns = [
-                r'\{"year":\s*"[^"]+",\s*"make":\s*"[^"]+",\s*"model":\s*"[^"]+",\s*"trim":\s*"[^"]+",\s*"drive":\s*"[^"]+"[^}]*\}',
-                r'\{[^{}]*"year"[^{}]*\}',
-                r'\{[^{}]*"make"[^{}]*\}',
+                # Complete JSON with all 5 required fields (any order)
+                r'\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*\}',
+                r'\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"drive"[^{}]*"trim"[^{}]*\}',
+                r'\{[^{}]*"make"[^{}]*"year"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*\}',
+                r'\{[^{}]*"make"[^{}]*"year"[^{}]*"model"[^{}]*"drive"[^{}]*"trim"[^{}]*\}',
+                r'\{[^{}]*"model"[^{}]*"year"[^{}]*"make"[^{}]*"trim"[^{}]*"drive"[^{}]*\}',
+                r'\{[^{}]*"model"[^{}]*"year"[^{}]*"make"[^{}]*"drive"[^{}]*"trim"[^{}]*\}',
+                # Extended JSON with optional fields (suspension, modification, rubbing)
+                r'\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*"suspension"[^{}]*\}',
+                r'\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*"modification"[^{}]*\}',
+                r'\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*"rubbing"[^{}]*\}',
+                # Fallback patterns for any JSON containing required fields
+                r'\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*\}',
+                r'\{[^{}]*"make"[^{}]*"year"[^{}]*"model"[^{}]*\}',
             ]
             
             for pattern in json_patterns:
@@ -624,9 +635,14 @@ class CustomWheelOffsetScraperV2:
                     for match in matches:
                         try:
                             json_data = json.loads(match)
-                            if 'year' in json_data and 'make' in json_data and 'model' in json_data:
-                                self.logger.info(f"Found JSON data via regex pattern: {json_data}")
+                            # Validate that we have the essential fields including trim and drive
+                            if ('year' in json_data and 'make' in json_data and 'model' in json_data and 
+                                'trim' in json_data and 'drive' in json_data):
+                                self.logger.info(f"Found complete JSON data via regex pattern: {json_data}")
                                 return json_data
+                            elif 'year' in json_data and 'make' in json_data and 'model' in json_data:
+                                # Log incomplete JSON for debugging
+                                self.logger.warning(f"Found incomplete JSON (missing trim/drive): {json_data}")
                         except json.JSONDecodeError:
                             continue
             
@@ -644,17 +660,29 @@ class CustomWheelOffsetScraperV2:
                     let node;
                     while (node = walker.nextNode()) {
                         const text = node.textContent.trim();
-                        if (text.includes('"year"') && text.includes('"make"') && text.includes('"model"')) {
-                            // Try to extract JSON from this text
-                            const jsonMatch = text.match(/\\{[^{}]*"year"[^{}]*\\}/);
-                            if (jsonMatch) {
-                                try {
-                                    const parsed = JSON.parse(jsonMatch[0]);
-                                    if (parsed.year && parsed.make && parsed.model) {
-                                        return jsonMatch[0];
+                        if (text.includes('"year"') && text.includes('"make"') && text.includes('"model"') && 
+                            text.includes('"trim"') && text.includes('"drive"')) {
+                            // Try to extract complete JSON from this text
+                            const jsonPatterns = [
+                                /\\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*\\}/,
+                                /\\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"drive"[^{}]*"trim"[^{}]*\\}/,
+                                /\\{[^{}]*"make"[^{}]*"year"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*\\}/,
+                                /\\{[^{}]*"make"[^{}]*"year"[^{}]*"model"[^{}]*"drive"[^{}]*"trim"[^{}]*\\}/,
+                                /\\{[^{}]*"model"[^{}]*"year"[^{}]*"make"[^{}]*"trim"[^{}]*"drive"[^{}]*\\}/,
+                                /\\{[^{}]*"model"[^{}]*"year"[^{}]*"make"[^{}]*"drive"[^{}]*"trim"[^{}]*\\}/
+                            ];
+                            
+                            for (const pattern of jsonPatterns) {
+                                const jsonMatch = text.match(pattern);
+                                if (jsonMatch) {
+                                    try {
+                                        const parsed = JSON.parse(jsonMatch[0]);
+                                        if (parsed.year && parsed.make && parsed.model && parsed.trim && parsed.drive) {
+                                            return jsonMatch[0];
+                                        }
+                                    } catch (e) {
+                                        // Continue searching
                                     }
-                                } catch (e) {
-                                    // Continue searching
                                 }
                             }
                         }
@@ -664,16 +692,28 @@ class CustomWheelOffsetScraperV2:
                     const elements = document.querySelectorAll('pre, code, script, div, span, p');
                     for (const element of elements) {
                         const text = element.textContent || element.innerText || '';
-                        if (text.includes('"year"') && text.includes('"make"') && text.includes('"model"')) {
-                            const jsonMatch = text.match(/\\{[^{}]*"year"[^{}]*\\}/);
-                            if (jsonMatch) {
-                                try {
-                                    const parsed = JSON.parse(jsonMatch[0]);
-                                    if (parsed.year && parsed.make && parsed.model) {
-                                        return jsonMatch[0];
+                        if (text.includes('"year"') && text.includes('"make"') && text.includes('"model"') && 
+                            text.includes('"trim"') && text.includes('"drive"')) {
+                            const jsonPatterns = [
+                                /\\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*\\}/,
+                                /\\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"drive"[^{}]*"trim"[^{}]*\\}/,
+                                /\\{[^{}]*"make"[^{}]*"year"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*\\}/,
+                                /\\{[^{}]*"make"[^{}]*"year"[^{}]*"model"[^{}]*"drive"[^{}]*"trim"[^{}]*\\}/,
+                                /\\{[^{}]*"model"[^{}]*"year"[^{}]*"make"[^{}]*"trim"[^{}]*"drive"[^{}]*\\}/,
+                                /\\{[^{}]*"model"[^{}]*"year"[^{}]*"make"[^{}]*"drive"[^{}]*"trim"[^{}]*\\}/
+                            ];
+                            
+                            for (const pattern of jsonPatterns) {
+                                const jsonMatch = text.match(pattern);
+                                if (jsonMatch) {
+                                    try {
+                                        const parsed = JSON.parse(jsonMatch[0]);
+                                        if (parsed.year && parsed.make && parsed.model && parsed.trim && parsed.drive) {
+                                            return jsonMatch[0];
+                                        }
+                                    } catch (e) {
+                                        // Continue searching
                                     }
-                                } catch (e) {
-                                    // Continue searching
                                 }
                             }
                         }
@@ -700,14 +740,26 @@ class CustomWheelOffsetScraperV2:
             await asyncio.sleep(0.5)  # Brief wait to capture any console output
             
             for log in console_logs:
-                if '"year"' in log and '"make"' in log and '"model"' in log:
+                if '"year"' in log and '"make"' in log and '"model"' in log and '"trim"' in log and '"drive"' in log:
                     try:
-                        # Extract JSON from console log
-                        json_match = re.search(r'\{[^{}]*"year"[^{}]*\}', log)
-                        if json_match:
-                            json_data = json.loads(json_match.group())
-                            self.logger.info(f"Found JSON data in console logs: {json_data}")
-                            return json_data
+                        # Extract complete JSON from console log with multiple patterns
+                        json_patterns = [
+                            r'\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*\}',
+                            r'\{[^{}]*"year"[^{}]*"make"[^{}]*"model"[^{}]*"drive"[^{}]*"trim"[^{}]*\}',
+                            r'\{[^{}]*"make"[^{}]*"year"[^{}]*"model"[^{}]*"trim"[^{}]*"drive"[^{}]*\}',
+                            r'\{[^{}]*"make"[^{}]*"year"[^{}]*"model"[^{}]*"drive"[^{}]*"trim"[^{}]*\}',
+                            r'\{[^{}]*"model"[^{}]*"year"[^{}]*"make"[^{}]*"trim"[^{}]*"drive"[^{}]*\}',
+                            r'\{[^{}]*"model"[^{}]*"year"[^{}]*"make"[^{}]*"drive"[^{}]*"trim"[^{}]*\}'
+                        ]
+                        
+                        for pattern in json_patterns:
+                            json_match = re.search(pattern, log)
+                            if json_match:
+                                json_data = json.loads(json_match.group())
+                                if ('year' in json_data and 'make' in json_data and 'model' in json_data and 
+                                    'trim' in json_data and 'drive' in json_data):
+                                    self.logger.info(f"Found complete JSON data in console logs: {json_data}")
+                                    return json_data
                     except json.JSONDecodeError:
                         continue
             
@@ -721,38 +773,60 @@ class CustomWheelOffsetScraperV2:
     def save_initial_ymm_record(self, json_data: dict) -> int:
         """Save initial YMM record from JSON data and return the row ID."""
         try:
+            # Log the incoming JSON data for debugging
+            self.logger.info(f"Attempting to save initial YMM record with JSON data: {json_data}")
+            
             # Validate required fields
             required_fields = ['year', 'make', 'model', 'trim', 'drive']
+            missing_fields = []
             for field in required_fields:
-                if field not in json_data:
-                    raise ValueError(f"Missing required field: {field}")
+                if field not in json_data or not json_data[field]:
+                    missing_fields.append(field)
+            
+            if missing_fields:
+                error_msg = f"Missing or empty required fields: {missing_fields}. JSON data: {json_data}"
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
             
             # Create YMM record with JSON data
             ymm_record = CustomWheelOffsetYMM(
-                year=json_data.get('year', ''),
-                make=json_data.get('make', ''),
-                model=json_data.get('model', ''),
-                trim=json_data.get('trim', ''),
-                drive=json_data.get('drive', ''),
-                suspension=json_data.get('suspension', ''),
-                modification=json_data.get('modification', ''),
-                rubbing=json_data.get('rubbing', ''),
+                year=str(json_data.get('year', '')).strip(),
+                make=str(json_data.get('make', '')).strip(),
+                model=str(json_data.get('model', '')).strip(),
+                trim=str(json_data.get('trim', '')).strip(),
+                drive=str(json_data.get('drive', '')).strip(),
+                suspension=str(json_data.get('suspension', '')).strip(),
+                modification=str(json_data.get('modification', '')).strip(),
+                rubbing=str(json_data.get('rubbing', '')).strip(),
                 # Additional fields will be updated later from URL
                 dr_chassis_id='',
                 vehicle_type='',
-                bolt_pattern=''
+                bolt_pattern='',
+                processed=0
             )
             
             self.db_session.add(ymm_record)
             self.db_session.flush()  # Flush to get the ID without committing
             
             ymm_id = ymm_record.id
-            self.logger.info(f"Created initial YMM record with ID: {ymm_id}, data: {json_data}")
+            
+            # Log successful creation with all field values
+            field_values = {
+                'year': ymm_record.year,
+                'make': ymm_record.make,
+                'model': ymm_record.model,
+                'trim': ymm_record.trim,
+                'drive': ymm_record.drive,
+                'suspension': ymm_record.suspension,
+                'modification': ymm_record.modification,
+                'rubbing': ymm_record.rubbing
+            }
+            self.logger.info(f"✅ Created initial YMM record with ID: {ymm_id}, Field values: {field_values}")
             
             return ymm_id
             
         except Exception as e:
-            self.logger.error(f"Error saving initial YMM record: {e}")
+            self.logger.error(f"❌ Error saving initial YMM record: {e}")
             self.db_session.rollback()
             raise e
 
