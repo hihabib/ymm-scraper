@@ -17,4 +17,11 @@ class ParsingError(ScraperError):
 class DataSplicingError(ScraperError):
     """Raised when data slicing/splicing logic encounters inconsistencies."""
 
-__all__ = ["ScraperError", "ApiError", "ParsingError", "DataSplicingError"]
+class HumanVerificationError(ScraperError):
+    """Raised when target site returns a Human Verification page.
+
+    This signals that scraping should pause and trigger the external CAPTCHA
+    solver process, then restart the scraper as a new process.
+    """
+
+__all__ = ["ScraperError", "ApiError", "ParsingError", "DataSplicingError", "HumanVerificationError"]

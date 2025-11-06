@@ -176,6 +176,23 @@ def get_scraper_cmd_for_provider(provider: str) -> str | None:
     return None
 
 
+def default_cmd_for_provider(provider: str) -> str | None:
+    """Return a sensible default command for known providers when env is not set.
+
+    Uses module execution so imports resolve consistently with PYTHONPATH=src.
+    """
+    p = normalize_provider(provider)
+    defaults: dict[str, str] = {
+        # Tire Rack default: entry module orchestrates scraping and retries
+        "tire-rack": "python -m src.providers.tire_rack.index",
+        # Driver Right default: run the main scraper script directly as a module
+        "driver-right": "python -m src.providers.driver_right.driver_right",
+        # Custom Wheel Offset: run the main scraper module directly
+        "custom-wheel-offset": "python -m src.providers.custom_wheel_offset.custom_wheel_offset",
+    }
+    return defaults.get(p)
+
+
 def spawn_provider_process(provider: str, cmd_str: str) -> subprocess.Popen:
     try:
         argv = shlex.split(cmd_str, posix=False)
@@ -213,6 +230,25 @@ def start_provider(provider: str, cmd_override: str | None = None) -> dict:
         entry = _get_registry_entry(provider_norm)
         if entry and isinstance(entry.get("cmd"), str) and entry["cmd"].strip():
             cmd_str = entry["cmd"].strip()
+    # If still not resolved, try built-in defaults for known providers
+    if not cmd_str:
+        cmd_str = default_cmd_for_provider(provider_norm)
+    else:
+        # If a script path was configured but is missing, fall back to default module entry
+        try:
+            args = shlex.split(cmd_str, posix=False)
+        except Exception:
+            args = cmd_str.split()
+        # Find any explicit .py script in the command and verify existence
+        script_arg = next((a for a in args if a.lower().endswith('.py')), None)
+        if script_arg:
+            script_path = Path(script_arg)
+            if not script_path.is_absolute():
+                script_path = REPO_ROOT / script_path
+            if not script_path.exists():
+                fallback = default_cmd_for_provider(provider_norm)
+                if fallback:
+                    cmd_str = fallback
     if not cmd_str:
         raise RuntimeError(
             f"No command configured for provider '{provider_norm}'. "

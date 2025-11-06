@@ -267,3 +267,7 @@ console_test.log
 rate_limit_test.log
 output.log
 scraper.zip
+src/playwright_user_data
+playwright_user_data
+data/*
+src/data/*

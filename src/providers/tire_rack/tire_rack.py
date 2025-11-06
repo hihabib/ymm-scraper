@@ -41,9 +41,9 @@ except Exception:
     spec.loader.exec_module(module)  # type: ignore
     extract_option_values = module.extract_option_values
     extract_xml_values = module.extract_xml_values
-from src.db.migrate import run_migrations
-from src.services.repository import insert_ymm, get_last_ymm, insert_error_log, insert_tire_sizes_for_ymm
-from src.core.errors import ApiError, ParsingError, DataSplicingError
+from db.migrate import run_migrations
+from services.repository import insert_ymm, get_last_ymm, insert_error_log, insert_tire_sizes_for_ymm
+from core.errors import ApiError, ParsingError, DataSplicingError
 import time
 import shutil
 from typing import Callable, Any, Optional

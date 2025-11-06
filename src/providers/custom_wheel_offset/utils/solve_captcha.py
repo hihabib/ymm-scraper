@@ -1,0 +1,2 @@
+from captcha import launch_browser_with_extension
+launch_browser_with_extension()
