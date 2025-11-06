@@ -70,6 +70,34 @@ def run_migrations() -> None:
             Base.metadata.create_all(bind=engine)
             break  # Only need to call create_all once if any table is missing
 
+    # Ensure eBay tables exist and align columns
+    ebay_tables = ["ebay_ymm_results", "ebay_tire_sizes"]
+    for table_name in ebay_tables:
+        if table_name not in insp.get_table_names():
+            Base.metadata.create_all(bind=engine)
+            break
+
+    # Drop deprecated columns from ebay_ymm_results (raw JSON payloads no longer stored)
+    ebay_ymm_table = "ebay_ymm_results"
+    if ebay_ymm_table in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns(ebay_ymm_table)]
+        for deprecated_col in ["ymm_result_json", "vehicle_information_json", "counters_json"]:
+            if deprecated_col in cols:
+                if engine.dialect.name == "postgresql":
+                    ddl = f"ALTER TABLE {ebay_ymm_table} DROP COLUMN {deprecated_col};"
+                elif engine.dialect.name == "sqlite":
+                    # SQLite lacks DROP COLUMN; skip since model applies to new tables
+                    ddl = None
+                else:
+                    ddl = f"ALTER TABLE {ebay_ymm_table} DROP COLUMN {deprecated_col};"
+                if ddl:
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text(ddl))
+                        print(f"[migrate] Dropped column {deprecated_col} from {ebay_ymm_table}")
+                    except Exception as e:
+                        print(f"[migrate] Failed to drop column {deprecated_col} from {ebay_ymm_table}: {e}")
+
     # Add missing processed column to custom_wheel_offset_ymm if it's absent
     cwo_ymm_table = "custom_wheel_offset_ymm"
     if cwo_ymm_table in insp.get_table_names():
@@ -261,8 +289,13 @@ def drop_unused_tables() -> None:
         "tirerack_tire_sizes",
         "custom_wheel_offset_ymm",
         "custom_wheel_offset_data",
+        "driver_right_ymm",
+        "driver_right_vehicle_specs",
+        "driver_right_tire_options",
+        "ebay_ymm_results",
+        "ebay_tire_sizes",
     }
-    managed_prefixes = ("tirerack_", "scrape_", "custom_wheel_offset_")
+    managed_prefixes = ("tirerack_", "scrape_", "custom_wheel_offset_", "driver_right_", "ebay_")
 
     # Candidates are app-namespaced tables not present in expected set
     candidates = sorted([

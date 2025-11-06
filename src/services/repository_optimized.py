@@ -11,7 +11,9 @@ from core.models import (
     CustomWheelOffsetData,
     DriverRightYMM,
     DriverRightVehicleSpec,
-    DriverRightTireOption
+    DriverRightTireOption,
+    EbayYMMResult,
+    EbayTireSize,
 )
 import json
 import threading
@@ -298,3 +300,119 @@ def insert_custom_wheel_offset_data(ymm_id: int, parsed_data: dict) -> int:
             total = len(objects_to_add)
     
     return total
+
+# eBay helper functions
+def insert_ebay_ymm_result(
+    year: str | None = None,
+    make: str | None = None,
+    model: str | None = None,
+    trim: str | None = None,
+    submodel: str | None = None,
+    engine: str | None = None,
+    engine_liter_display: str | None = None,
+) -> int:
+    """Insert an eBay YMM result and return its ID."""
+    with get_db_session() as session:
+        obj = EbayYMMResult(
+            year=year,
+            make=make,
+            model=model,
+            trim=trim,
+            submodel=submodel,
+            engine=engine,
+            engine_liter_display=engine_liter_display,
+        )
+        session.add(obj)
+        session.flush()
+        return obj.id
+
+def batch_insert_ebay_tire_sizes(
+    ymm_id: int,
+    tire_sizes: List[str],
+    convenience_fields: Dict[str, Optional[str]]
+) -> int:
+    """Batch insert eBay tire sizes tied to a YMM result.
+
+    Args:
+        ymm_id: Foreign key id from `ebay_ymm_results`.
+        tire_sizes: List of tire size strings like "255/55-19".
+        convenience_fields: Dict with keys year/make/model/trim/submodel/engine.
+
+    Returns:
+        Number of records inserted.
+    """
+    if not tire_sizes:
+        return 0
+    with get_db_session() as session:
+        objects = []
+        for size in tire_sizes:
+            objects.append(EbayTireSize(
+                ymm_id=ymm_id,
+                year=convenience_fields.get('year'),
+                make=convenience_fields.get('make'),
+                model=convenience_fields.get('model'),
+                trim=convenience_fields.get('trim'),
+                submodel=convenience_fields.get('submodel'),
+                engine=convenience_fields.get('engine'),
+                tire_size=size,
+            ))
+        session.add_all(objects)
+        return len(objects)
+
+def get_last_ebay_ymm_result() -> Optional[EbayYMMResult]:
+    """Return the most recently inserted eBay YMM result (by created_at), or None."""
+    with get_db_session() as session:
+        return (
+            session.query(EbayYMMResult)
+            .order_by(EbayYMMResult.created_at.desc(), EbayYMMResult.id.desc())
+            .first()
+        )
+
+
+def find_ebay_ymm_result(
+    year: Optional[str],
+    make: Optional[str],
+    model: Optional[str],
+    trim: Optional[str],
+    submodel: Optional[str],
+    engine: Optional[str],
+) -> Optional[EbayYMMResult]:
+    """Find existing EbayYMMResult by key convenience fields."""
+    with get_db_session() as session:
+        q = session.query(EbayYMMResult)
+        if year is not None:
+            q = q.filter(EbayYMMResult.year == year)
+        else:
+            q = q.filter(EbayYMMResult.year.is_(None))
+        if make is not None:
+            q = q.filter(EbayYMMResult.make == make)
+        else:
+            q = q.filter(EbayYMMResult.make.is_(None))
+        if model is not None:
+            q = q.filter(EbayYMMResult.model == model)
+        else:
+            q = q.filter(EbayYMMResult.model.is_(None))
+        if trim is not None:
+            q = q.filter(EbayYMMResult.trim == trim)
+        else:
+            q = q.filter(EbayYMMResult.trim.is_(None))
+        if submodel is not None:
+            q = q.filter(EbayYMMResult.submodel == submodel)
+        else:
+            q = q.filter(EbayYMMResult.submodel.is_(None))
+        if engine is not None:
+            q = q.filter(EbayYMMResult.engine == engine)
+        else:
+            q = q.filter(EbayYMMResult.engine.is_(None))
+        return q.first()
+
+
+def get_tire_sizes_for_ymm(ymm_id: int) -> List[str]:
+    """Return existing tire_size strings for the given ymm_id."""
+    with get_db_session() as session:
+        rows = (
+            session.query(EbayTireSize.tire_size)
+            .filter(EbayTireSize.ymm_id == ymm_id)
+            .all()
+        )
+        return [r[0] for r in rows]

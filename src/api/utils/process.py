@@ -189,6 +189,8 @@ def default_cmd_for_provider(provider: str) -> str | None:
         "driver-right": "python -m src.providers.driver_right.driver_right",
         # Custom Wheel Offset: run the main scraper module directly
         "custom-wheel-offset": "python -m src.providers.custom_wheel_offset.custom_wheel_offset",
+        # eBay provider: Python port of demo-js
+        "ebay": "python -m src.providers.ebay.ebay",
     }
     return defaults.get(p)
 

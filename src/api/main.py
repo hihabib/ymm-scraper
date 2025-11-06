@@ -6,6 +6,7 @@ from starlette.requests import Request
 from fastapi.middleware.cors import CORSMiddleware
 from .routes import router as system_router
 from .routers.scraper import router as scraper_router
+from .routers.fitment_driver_right import router as fitment_driver_right_router
 from .utils.response import envelope
 
 app = FastAPI(title="Scraper API")
@@ -22,6 +23,7 @@ app.add_middleware(
 # Include routers
 app.include_router(system_router)
 app.include_router(scraper_router)
+app.include_router(fitment_driver_right_router)
 
 # Startup restoration removed per request; app will not auto-restore child processes.
 

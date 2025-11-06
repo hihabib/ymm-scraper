@@ -166,6 +166,34 @@ class DriverRightTireOption(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class EbayYMMResult(Base):
+    __tablename__ = "ebay_ymm_results"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Convenience fields extracted from YMMResult for indexing
+    year: Mapped[str] = mapped_column(String(10), nullable=True)
+    make: Mapped[str] = mapped_column(String(100), nullable=True)
+    model: Mapped[str] = mapped_column(String(150), nullable=True)
+    trim: Mapped[str] = mapped_column(String(200), nullable=True)
+    submodel: Mapped[str] = mapped_column(String(200), nullable=True)
+    engine: Mapped[str] = mapped_column(String(200), nullable=True)
+    engine_liter_display: Mapped[str] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class EbayTireSize(Base):
+    __tablename__ = "ebay_tire_sizes"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ymm_id: Mapped[int] = mapped_column(Integer, ForeignKey("ebay_ymm_results.id"), nullable=False)
+    # Convenience fields duplicated for easier querying without joins when needed
+    year: Mapped[str] = mapped_column(String(10), nullable=True)
+    make: Mapped[str] = mapped_column(String(100), nullable=True)
+    model: Mapped[str] = mapped_column(String(150), nullable=True)
+    trim: Mapped[str] = mapped_column(String(200), nullable=True)
+    submodel: Mapped[str] = mapped_column(String(200), nullable=True)
+    engine: Mapped[str] = mapped_column(String(200), nullable=True)
+    tire_size: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
 __all__ = [
     "Base",
     "TireRackYMM",
@@ -176,4 +204,6 @@ __all__ = [
     "DriverRightYMM",
     "DriverRightVehicleSpec",
     "DriverRightTireOption",
+    "EbayYMMResult",
+    "EbayTireSize",
 ]
